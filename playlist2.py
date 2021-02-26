@@ -14,7 +14,8 @@
 #  5.  Has "Playlists", which are stored on each users computer.
 #      Playlists contain a list of songs.
 #      Playlists can be created and deleted, but not modified at the moment.
-
+#  6.  The program uses a settings file to track the number of songs and total
+#      listening time, for that computer
 
 from terminusdb_client.woqlclient.woqlClient import WOQLClient
 from terminusdb_client.woqlquery.woql_query import WOQLQuery as WQ
@@ -49,7 +50,8 @@ MAIN_MENU = ('\n'
              '4.  Add song\n'
              '5.  Edit song\n'
              '6.  Playlists\n'
-             '7.  Exit\n'
+             '7.  View stats\n'
+             '8.  Exit\n'
              )
 
 PLAYLIST_MENU = ('\n'
@@ -106,7 +108,7 @@ def view_songs() -> None:
               str(mysong['length']).ljust(9)[:9], str(mysong['location']).ljust(44)[:44])
 
 
-def play_song() -> None:
+def play_user_specified_song(settings) -> None:
     '''
     Prompts user for the song number, then plays it.
 
@@ -115,17 +117,28 @@ def play_song() -> None:
     '''
     song_num = input('Enter the song number that you want to play  (Enter to exit):  ')
     while (song_num != ''):
-        song = get_song(song_num)
-
-        if path.exists(song['location']):
-            playsound(song['location'])
-        else:
-            webbrowser.open(song['location'])
+        play_song(settings, song_num)
 
         song_num = input('Enter the song number that you want to play  (Enter to exit):  ')
 
+def play_song(settings, song_num: str) -> dict:
+    '''
+    Plays the song, increments the settings' counters, returns the song (dict) that was played
+    '''
+    song = get_song(song_num)
 
-def play_randomized_songs() -> None:
+    settings['main']['songs_played'] = str(int(settings['main']['songs_played']) + 1)
+    settings['main']['time_played'] = str(int(settings['main']['time_played']) + song['length'])
+
+    if path.exists(song['location']):
+        playsound(song['location'])
+    else:
+        webbrowser.open(song['location'])
+        time.sleep(song['length'] + 3)
+
+    return song
+
+def play_randomized_songs(settings) -> None:
     '''
     Plays random songs for a user specified amount of time
     '''
@@ -136,16 +149,7 @@ def play_randomized_songs() -> None:
     time_played = 0
 
     while (time_played < min_to_play_for * 60):
-        song = get_song(str(random.randint(1, num_songs)))
-
-        #  It's a file
-        if path.exists(song['location']):
-            playsound(song['location'])
-        else:
-            #  It's a website
-            webbrowser.open(song['location'])
-            time.sleep(song['length'] + 5)
-
+        song = play_song(settings, str(random.randint(1, num_songs)))
         time_played += song['length']
 
 def add_song(title='', album='', artist='', length=0, location='') -> None:
@@ -276,6 +280,10 @@ def initialize_settings() -> ConfigParser:
     config.read('config.ini')
     if 'playlists' not in config:
         config['playlists'] = {}
+    if 'main' not in config:
+        config['main'] = {}
+        config['main']['songs_played'] = '0'
+        config['main']['time_played'] = '0'
     return config
 
 
@@ -293,16 +301,7 @@ def play_playlist(settings) -> None:
 
     time_played = 0
     while (time_played < min_to_play_for * 60):
-        song = get_song(random.choice(songs))
-
-        #  It's a file
-        if path.exists(song['location']):
-            playsound(song['location'])
-        else:
-            #  It's a website
-            webbrowser.open(song['location'])
-            time.sleep(song['length'] + 5)
-
+        song = play_song(random.choice(songs))
         time_played += song['length']
 
 def view_playlists(settings) -> None:
@@ -339,16 +338,15 @@ def delete_playlist(settings) -> None:
         if index == playlist_to_delete:
             settings.remove_option('playlists', key)
 
-def playlists() -> None:
+def playlists(settings) -> None:
     '''
     Loads the settings from the users computer
     Prints the playlist menu, and lets the user modify playlists
     Saves settings when the function exits
     '''
-    settings = initialize_settings()
 
     option = '1'
-    while option in ['1', '2', '3', '4', '5']:
+    while option in ['1', '2', '3', '4']:
         print (PLAYLIST_MENU)
         option = input('Select between 1 - 5:  ')
         if option == '1':
@@ -359,12 +357,27 @@ def playlists() -> None:
             add_playlist(settings)
         elif option == '4':
             delete_playlist(settings)
-        elif option == '6':
-            playlists()
 
-    with open('config.ini', 'w') as configfile:
-        settings.write(configfile)
+def view_stats(settings) -> None:
+    '''  Prints the stats (number of songs played, and length of time listened) '''
 
+    sec  = int(settings['main']['time_played'])
+    days = sec // 86400
+    remainder = sec % 86400
+    days2 = str(days) + ' day' + ('s' if days != 1 else '')
+
+    hours = remainder // 3600
+    remainder = remainder % 3600
+    hours2 = str(hours) + ' hour' + ('s' if hours != 1 else '')
+
+    minutes = remainder // 60
+    minutes2 = str(minutes) + ' minute' + ('s' if hours != 1 else '')
+
+    seconds = remainder % 60
+    seconds2 = str(seconds) + ' second' + ('s' if seconds != 1 else '')
+
+    print('You have listened to ' + str(settings['main']['songs_played']) + ' songs.')
+    print('You have listened for ' + str(days2) + ', ' + str(hours2) + ', ' + str(minutes2) + ' and ' + str(seconds2) + '.')
 
 def main() -> None:
     '''
@@ -374,23 +387,29 @@ def main() -> None:
     '''
     create_schema()
     check_audio_files()
+    settings = initialize_settings()
 
     option = '1'
-    while option in ['1', '2', '3', '4', '5', '6']:
+    while option in ['1', '2', '3', '4', '5', '6', '7']:
         print(MAIN_MENU)
-        option = input('Select between 1 - 6:  ')
+        option = input('Select between 1 - 7:  ')
         if option == '1':
             view_songs()
         if option == '2':
-            play_song()
+            play_user_specified_song(settings)
         if option == '3':
-            play_randomized_songs()
+            play_randomized_songs(settings)
         elif option == '4':
             add_song()
         elif option == '5':
             edit_song()
         elif option == '6':
-            playlists()
+            playlists(settings)
+        elif option == '7':
+            view_stats(settings)
+
+    with open('config.ini', 'w') as configfile:
+        settings.write(configfile)
 
     print("Thanks for using this music playing program!")
 
